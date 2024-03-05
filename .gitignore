@@ -3,7 +3,7 @@
 .env
 chroma_db/
 .chroma
-chroma_db_list/
+chroma_db_multi/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
