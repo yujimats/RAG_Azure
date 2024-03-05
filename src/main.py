@@ -3,7 +3,7 @@ import yaml
 import pandas as pd
 from dotenv import load_dotenv
 
-from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, JSONLoader, TextLoader
 from langchain_community.vectorstores import Chroma
 from langchain_openai import AzureChatOpenAI
 
@@ -29,7 +29,7 @@ def get_embedding():
     )
     return embedding
 
-def main_fromPDF():
+def main_onefile():
     # get configs
     with open(os.path.join('config', 'config.yml'), 'r') as yml:
         config = yaml.safe_load(yml)
@@ -38,25 +38,22 @@ def main_fromPDF():
 
     # load files
     filepath = os.path.join('data', filename)
-    loader = PyPDFLoader(filepath)
+    if filetype == 'pdf':
+        loader = PyPDFLoader(filepath)
+    elif filetype == 'word':
+        loader = Docx2txtLoader(filepath)
+    elif filetype == 'json':
+        loader = JSONLoader(filepath)
+    else:
+        '''
+        Excel, Powerpointの場合。
+        langchain_communityのフレームワークを使って直接テキストを取得できない
+        ファイルから一度テキストのみ抽出し、テキストファイルとして保存する
+        そのテキストファイルをロードするならできそう。
+        TextLoaderが良さそう。
+        '''
+        pass
     documents = loader.load_and_split()
-
-    # data.jsonlをDataFrameで読み込み
-    # path_data = os.path.join('data', 'data.jsonl')
-    # df_data = pd.read_json(path_data, orient='records', lines=True)
-
-    # # 'copyright'が気象庁のものだけピックアップ
-    # df_data = df_data[df_data['copyright']=='気象庁']
-
-    # # QuestionとAnswerを結合
-    # df_data['QnA'] = df_data['Question'] + ' ' + df_data['Answer']
-
-    # list_qna = df_data['QnA'].tolist()
-
-    # loader = JSONLoader(
-    #     file_path=path_data,
-    #     jq_schema='Answer'
-    # )
 
     embedding=get_embedding()
     # index = VectorstoreIndexCreator(embedding=embedding).from_loaders([loader])
@@ -93,9 +90,5 @@ def main_fromPDF():
     query = '研究公募を実施する目的は何か?'
     print(chain({chain.question_key: query}))
 
-def main_fromlist():
-    pass
-
 if __name__=='__main__':
-    main_fromPDF()
-    main_fromlist()
+    main_onefile()
