@@ -1,0 +1,10 @@
+version: '3'
+services:
+  app:
+    build: .
+    volumes:
+      - ./../src/:/home/rag_azure/
+      - ./../data/:/home/rag_azure/data/
+    ports:
+      - 8888:8888
+    tty: true
