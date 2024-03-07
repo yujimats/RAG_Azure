@@ -31,7 +31,7 @@ def get_embedding():
     )
     return embedding
 
-def get_llm(temperature={0:int}):
+def get_llm(temperature=0):
     llm = AzureChatOpenAI(
         api_version=os.environ['API_VERSION'],
         azure_endpoint=os.environ['API_ENDPOINT'],
@@ -42,6 +42,71 @@ def get_llm(temperature={0:int}):
     return llm
 
 def main_onefile():
+    # get configs
+    with open(os.path.join('config', 'config.yml'), 'r') as yml:
+        config = yaml.safe_load(yml)
+    filetype = config['data']['filetype']
+    filename = config['data']['filename']
+
+    # get models
+    embedding = get_embedding()
+    llm = get_llm()
+
+    # path to db
+    persist_directory = './chroma_db_multi/'
+    # chroma db settings
+    client_settings = Settings(
+        chroma_db_impl='duckdb+parquet',
+        persist_directory=persist_directory,
+        anonymized_telemetry=False
+    )
+    # get instance of db
+    db = Chroma(
+        collection_name='langchain',
+        embedding_function=embedding,
+        client_settings=client_settings,
+        persist_directory=persist_directory
+    )
+
+    # load files
+    filepath = os.path.join('data', filename)
+    if filetype == 'pdf':
+        loader = PyPDFLoader(filepath)
+    elif filetype == 'word':
+        loader = Docx2txtLoader(filepath)
+    elif filetype == 'json':
+        loader = JSONLoader(filepath)
+    else:
+        '''
+        Excel, Powerpointの場合。
+        langchain_communityのフレームワークを使って直接テキストを取得できない
+        ファイルから一度テキストのみ抽出し、テキストファイルとして保存する
+        そのテキストファイルをロードするならできそう。
+        TextLoaderが良さそう。
+        '''
+        pass
+    documents = loader.load_and_split()
+
+    db.add_documents(
+        documents=documents,
+        embedding=embedding
+    )
+    db.persist()
+
+    # 検索・参照先ファイルを出力するチェーンを作成
+    retriever = db.as_retriever()
+    chain = RetrievalQAWithSourcesChain.from_chain_type(
+        llm=llm,
+        chain_type="stuff",
+        retriever=retriever
+    )
+
+    # チェーン実行
+    query = '研究公募を実施する目的は何か？'
+    print(chain({chain.question_key: query}))
+
+def main_onefile_beta():
+    # using Chroma.from_documents; it works, but not useful.
     # get configs
     with open(os.path.join('config', 'config.yml'), 'r') as yml:
         config = yaml.safe_load(yml)
@@ -70,13 +135,7 @@ def main_onefile():
     embedding=get_embedding()
     # index = VectorstoreIndexCreator(embedding=embedding).from_loaders([loader])
 
-    llm = AzureChatOpenAI(
-        api_version=os.environ['API_VERSION'],
-        azure_endpoint=os.environ['API_ENDPOINT'],
-        api_key=os.environ['API_KEYS'],
-        azure_deployment=os.environ['OPENAI_MODEL'],
-        temperature=0
-    )
+    llm = get_llm()
 
     vectorstore = Chroma(
         collection_name='langchain',
@@ -103,24 +162,29 @@ def main_onefile():
     print(chain({chain.question_key: query}))
 
 def main_multifiles():
+    # get models
+    embedding = get_embedding()
+    llm = get_llm()
+
+    # path to db
+    persist_directory = './chroma_db_multi/'
+    # chroma db settings
+    client_settings = Settings(
+        chroma_db_impl='duckdb+parquet',
+        persist_directory=persist_directory,
+        anonymized_telemetry=False
+    )
+    # get instance of db
+    db = Chroma(
+        collection_name='langchain',
+        embedding_function=embedding,
+        client_settings=client_settings,
+        persist_directory=persist_directory
+    )
+
+    # get source files
     target_path = os.path.join('data')
     list_pdf = [f for f in os.listdir(target_path) if f.endswith('.pdf')]
-
-    embedding = get_embedding()
-
-    llm = AzureChatOpenAI(
-        api_version=os.environ['API_VERSION'],
-        azure_endpoint=os.environ['API_ENDPOINT'],
-        api_key=os.environ['API_KEYS'],
-        azure_deployment=os.environ['OPENAI_MODEL'],
-        temperature=0
-    )
-
-    vectorstore = Chroma(
-        collection_name='langchain',
-        embedding_function=embedding
-        # persist_directory='./chroma_db_multi/'
-    )
 
     for pdf in list_pdf:
         # path指定
@@ -129,37 +193,14 @@ def main_multifiles():
         loader = PyPDFLoader(filepath)
         # langchain_core.documents.base.Document生成
         documents = loader.load_and_split()
+        # add db
+        db.add_documents(
+            documents=documents,
+            embedding=embedding
+        )
 
-        if os.path.exists('./chroma_db_multi/'):
-            vectorstore.add_documents(
-                documents=documents,
-                embedding=embedding,
-                persist_directory='./chroma_db_multi/'
-            )
-        else:
-            db = vectorstore.from_documents(
-                documents=documents,
-                embedding=embedding,
-                persist_directory='./chroma_db_multi/'
-            )
-
-    # filepath = os.path.join(target_path, list_pdf[0])
-    # loader = PyPDFLoader(filepath)
-    # documents = loader.load_and_split()
-    # db = vectorstore.from_documents(
-    #     documents=documents,
-    #     embedding=embedding,
-    #     persist_directory='./chroma_db_multi/'
-    # )
-
-    # filepath = os.path.join(target_path, list_pdf[1])
-    # loader = PyPDFLoader(filepath)
-    # documents = loader.load_and_split()
-    # vectorstore.add_documents(
-    #     documents=documents,
-    #     embedding=embedding,
-    #     persist_directory='./chroma_db_multi/'
-    # )
+    # persist db
+    db.persist()
 
     # 検索・参照先ファイルを出力するチェーンを作成
     retriever = db.as_retriever()
@@ -255,9 +296,9 @@ def chat_from_db():
 
 if __name__=='__main__':
     # main_onefile()
-    # main_multifiles()
+    main_multifiles()
 
-    # make database
-    make_db()
-    # use database for RAG
-    chat_from_db()
+    # # make database
+    # make_db()
+    # # use database for RAG
+    # chat_from_db()
