@@ -12,8 +12,10 @@ from langchain.chains import RetrievalQAWithSourcesChain
 
 from langchain_openai import AzureOpenAIEmbeddings
 
+from chromadb.config import Settings
+
 # get env
-load_dotenv()
+load_dotenv('./.ENV')
 
 def get_embedding():
     embedding=AzureOpenAIEmbeddings(
@@ -28,6 +30,16 @@ def get_embedding():
         max_retries=2,
     )
     return embedding
+
+def get_llm(temperature={0:int}):
+    llm = AzureChatOpenAI(
+        api_version=os.environ['API_VERSION'],
+        azure_endpoint=os.environ['API_ENDPOINT'],
+        api_key=os.environ['API_KEYS'],
+        azure_deployment=os.environ['OPENAI_MODEL'],
+        temperature=temperature
+    )
+    return llm
 
 def main_onefile():
     # get configs
@@ -165,6 +177,87 @@ def main_multifiles():
     query = '日本における高精度遺伝子診断導入の早期立ち上げの目的で買収した企業はどこ？'
     print(chain({chain.question_key: query}))
 
+def make_db():
+    # get configs
+    with open(os.path.join('config', 'config.yml'), 'r') as yml:
+        config = yaml.safe_load(yml)
+    filetype = config['data']['filetype']
+    filename = config['data']['filename']
+
+    # load files
+    filepath = os.path.join('data', filename)
+    if filetype == 'pdf':
+        loader = PyPDFLoader(filepath)
+    elif filetype == 'word':
+        loader = Docx2txtLoader(filepath)
+    elif filetype == 'json':
+        loader = JSONLoader(filepath)
+    else:
+        '''
+        Excel, Powerpointの場合。
+        langchain_communityのフレームワークを使って直接テキストを取得できない
+        ファイルから一度テキストのみ抽出し、テキストファイルとして保存する
+        そのテキストファイルをロードするならできそう。
+        TextLoaderが良さそう。
+        '''
+        pass
+    documents = loader.load_and_split()
+
+    embedding = get_embedding()
+
+    client_settings = Settings(
+        chroma_db_impl='duckdb+parquet',
+        persist_directory='./chroma_db_separate',
+        anonymized_telemetry=False
+    )
+
+    db = Chroma(
+        collection_name='langchain',
+        embedding_function=embedding,
+        client_settings=client_settings,
+        persist_directory='./chroma_db_separate'
+    )
+
+    db.add_documents(
+        documents=documents,
+        embedding=embedding
+    )
+    db.persist()
+
+def chat_from_db():
+    # get models
+    embedding = get_embedding()
+
+    llm = get_llm()
+
+    client_settings = Settings(
+        chroma_db_impl='duckdb+parquet',
+        persist_directory='./chroma_db_separate',
+        anonymized_telemetry=False
+    )
+
+    db = Chroma(
+        collection_name='langchain',
+        embedding_function=embedding,
+        client_settings=client_settings,
+        persist_directory='./chroma_db_separate'
+    )
+
+    retriever = db.as_retriever()
+    chain = RetrievalQAWithSourcesChain.from_chain_type(
+        llm=llm,
+        chain_type='stuff',
+        retriever=retriever
+    )
+
+    query='研究公募を実施する目的は何か?'
+    print(chain({chain.question_key: query}))
+
 if __name__=='__main__':
     # main_onefile()
-    main_multifiles()
+    # main_multifiles()
+
+    # make database
+    make_db()
+    # use database for RAG
+    chat_from_db()
