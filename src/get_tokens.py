@@ -3,6 +3,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import tiktoken
 
+from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, JSONLoader
+
 GPT_MODEL = "gpt-3.5-turbo"
 
 def num_tokens(text, model=GPT_MODEL):
@@ -18,21 +20,70 @@ def save_fig(df, colum_name, path_save, title='token', xlabel='index', ylabel='t
     plt.grid(True)
     plt.savefig(path_save)
 
+def get_token_fromDocuments(documents, model='text-embedding-ada-002'):
+    token = 0
+    encoding = tiktoken.encoding_for_model(model)
+    for document in documents:
+        token += len(encoding.encode(document.page_content))
+    return token
+
+def get_token_cost_fromDocuments(documents, cost_per_ktoken=0.0001, rate=150, model='text-embedding-ada-002', flag_yen=True):
+    token = get_token_fromDocuments(documents, model)
+    if flag_yen:
+        # default: yen
+        cost = token / 1000 * cost_per_ktoken * rate
+    else:
+        # dallers
+        cost = token / 1000 * cost_per_ktoken
+    return cost
+
 if __name__ == '__main__':
-    # data.jsonlをDataFrameで読み込む
-    path_data = os.path.join('data', 'data.jsonl')
-    df_data = pd.read_json(path_data, orient='records', lines=True)
+    # dataフォルダ内のファイルを読み取り
+    # pdfのみ対応、その他ファイルは後ほど対応
+    target_dir = os.path.join('data')
+    list_pdf = [f for f in os.listdir(target_dir) if f.endswith('.pdf')]
 
-    # tokenを計算
-    df_data['token'] = df_data['Question'].apply(num_tokens)
+    token = 0; cost = 0
+    for pdf in list_pdf:
+        # path指定
+        filepath = os.path.join(target_dir, pdf)
+        # ファイルにロード
+        loader = PyPDFLoader(filepath)
+        # langchain_core.documents.base.Document生成
+        documents = loader.load_and_split()
+        token += get_token_fromDocuments(documents)
+        cost += get_token_cost_fromDocuments(documents)
 
-    # 可視化
-    save_fig(df=df_data, colum_name='token', path_save='temp_Q.png')
+    print(f'total token: {token}')
+    print(f'total cost: {cost}')
 
-    # QuestionとAnswerを結合
-    df_data['QnA'] = df_data['Question'] + " " + df_data['Answer']
+    # word; 動作確認無し
+    target_dir = os.path.join('data')
+    list_word = [f for f in os.listdir(target_dir) if f.endswith('.docx')]
 
-    df_data['token_QnA'] = df_data['QnA'].apply(num_tokens)
-    # 可視化
-    save_fig(df=df_data, colum_name='token_QnA', path_save='temp_QnA.png')
+    token = 0; cost = 0
+    for word in list_word:
+        # path指定
+        filepath = os.path.join(target_dir, word)
+        # ファイルにロード
+        loader = Docx2txtLoader(filepath)
+        # langchain_core.documents.base.Document生成
+        documents = loader.load_and_split()
+        token += get_token_fromDocuments(documents)
+        cost += get_token_cost_fromDocuments(documents)
+
+    # json: 動作確認なし
+    target_dir = os.path.join('data')
+    list_json = [f for f in os.listdir(target_dir) if f.endswith('.json')]
+
+    token = 0; cost = 0
+    for json in list_json:
+        # path指定
+        filepath = os.path.join(target_dir, json)
+        # ファイルにロード
+        loader = JSONLoader(filepath)
+        # langchain_core.documents.base.Document生成
+        documents = loader.load_and_split()
+        token += get_token_fromDocuments(documents)
+        cost += get_token_cost_fromDocuments(documents)
 
