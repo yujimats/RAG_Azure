@@ -30,3 +30,17 @@ OPENAI_MODEL={YOUR DEPLOYED MODEL NAME}
 # 実行方法
 Dockerコンテナ内に入り、`main.py`を実行する。  
 コード内のプロンプトは随時変更し、応答の変化を見るのも良い。  
+
+# Webアプリ使い方
+`Streamlit`を使ったWebアプリも実行可能。  
+Dockerコンテナに入り、以下実行する。  
+```bash
+$ streamlit run chat_bot_st.py
+```
+その後、[`http://0.0.0.0:8501`](http://0.0.0.0:8501)へアクセスすると、チャット画面が立ち上がる。  
+クエリをいれると、応答ができる。  
+
+なお、アクセスするアドレスのIPとポートは、[`./src/.streamlit/config.toml`](./src/.streamlit/config.toml)内で設定可能。  
+
+また、スクリプトは以下リポジトリを参考にした。  
+<https://github.com/joshuel09/chatbot-langChain/blob/main/langChainExp.py>  

@@ -33,7 +33,7 @@ RUN pip install --upgrade pip
 RUN pip install pandas==2.0.0
 RUN pip install matplotlib==3.8.2
 RUN pip install python_dotenv==1.0.1
-RUN pip install openai==0.28.0
+RUN pip install openai==1.14.1
 RUN pip install chromadb==0.3.29
 RUN pip install mwclient==0.10.1
 RUN pip install mwparserfromhell==0.6.6
@@ -51,6 +51,8 @@ RUN pip install langchain-openai==0.0.8
 RUN pip install docarray==0.32.1
 RUN pip install faiss-cpu==1.8.0
 RUN pip install langchain-text-splitters==0.0.1
+RUN pip install streamlit==1.32.2
+RUN pip install streamlit-chat==0.1.1
 
 # ワーキングディレクトリの設定
 WORKDIR /home
