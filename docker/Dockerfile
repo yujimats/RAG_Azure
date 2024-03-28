@@ -53,6 +53,12 @@ RUN pip install faiss-cpu==1.8.0
 RUN pip install langchain-text-splitters==0.0.1
 RUN pip install streamlit==1.32.2
 RUN pip install streamlit-chat==0.1.1
+RUN pip install llama-index-embeddings-azure-openai==0.1.6
+RUN pip install llama-index-llms-azure-openai==0.1.5
+RUN pip install llama-index==0.10.24
+RUN pip install llama-index-vector-stores-chroma==0.1.6
+RUN pip install sentence-transformers==2.6.1
+RUN pip install pydantic==1.10.11
 
 # ワーキングディレクトリの設定
 WORKDIR /home
