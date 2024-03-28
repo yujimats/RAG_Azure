@@ -94,7 +94,76 @@ def main_onefile_chroma():
     print('query was:',query)
     print('answer:',answer)
 
+def make_db(persistent_directory='./.chroma'):
+    # Settings
+    Settings.embed_model = get_embedding()
+
+    # get files
+    target_path = os.path.join('data')
+    list_pdffiles = [f for f in os.listdir(target_path) if f.endswith('.pdf')]
+    list_pdffiles = [
+        '20240319-mxt_syogai03-000034697_2.pdf',
+        'mpr240319c.pdf'
+    ]
+
+    # db setting
+    db = chromadb.PersistentClient(path=persistent_directory)
+    chroma_collection = db.get_or_create_collection('quickstart')
+    vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+    storage_context = StorageContext.from_defaults(vector_store=vector_store)
+
+    # add data
+    for pdffile in list_pdffiles:
+        document = SimpleDirectoryReader(
+            input_files=[os.path.join(target_path, pdffile)]
+        ).load_data()
+
+        index = VectorStoreIndex.from_documents(
+            document,
+            storage_context=storage_context,
+            embed_model=get_embedding()
+        )
+
+def chat_from_db(persistent_directory='./.chroma'):
+    # get models
+    Settings.llm = get_llm()
+    Settings.embed_model = get_embedding()
+
+    # load from disk
+    db = chromadb.PersistentClient(path=persistent_directory)
+    chroma_collection = db.get_or_create_collection('quickstart')
+    vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+    index = VectorStoreIndex.from_vector_store(
+        vector_store,
+        embed_model=get_embedding()
+    )
+
+    # RAG
+    query = '「たのしくまなび隊」としてリニューアルされた背景を日本語で簡潔にまとめてください。'
+    query_engine = index.as_query_engine()
+    answer = query_engine.query(query)
+
+    # check answer
+    print(answer.get_formatted_sources())
+    print('query was:', query)
+    print('answer:', answer)
+
+    # RAG
+    query =  '日本銀行が定める長期国債等の買入について、どのように運用することとしたか教えて下さい。'
+    query_engine = index.as_query_engine()
+    answer = query_engine.query(query)
+
+    # check answer
+    print(answer.get_formatted_sources())
+    print('query was:', query)
+    print('answer:', answer)
+
 if __name__=='__main__':
     # one file
     # main_onefile_VSI()
-    main_onefile_chroma()
+    # main_onefile_chroma()
+
+    # multi files
+    persistent_directory='./chroma_db_multifiles/'
+    make_db(persistent_directory=persistent_directory)
+    chat_from_db(persistent_directory=persistent_directory)
