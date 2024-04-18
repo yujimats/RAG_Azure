@@ -18,6 +18,12 @@ from langchain.chains import RetrievalQAWithSourcesChain
 from langchain_openai import OpenAIEmbeddings
 from langchain_openai import AzureOpenAIEmbeddings
 
+from langchain_core.prompts import PromptTemplate
+
+from chromadb.config import Settings
+
+from utils import get_llm, get_embedding
+
 # initial settings
 load_dotenv()
 openai.api_type = os.environ['API_TYPE']
@@ -281,3 +287,108 @@ def chat_from_db():
 
     query='研究公募を実施する目的は何か?'
     print(chain({chain.question_key: query}))
+
+def main_onefile_withSource():
+    # get configs
+    with open(os.path.join('config', 'config.yml'), 'r') as yml:
+        config = yaml.safe_load(yml)
+    filetype = config['data']['filetype']
+    filename = config['data']['filename']
+
+    # get models
+    embedding = get_embedding()
+    llm = get_llm()
+
+    # path to db
+    persist_directory = './chroma_db_onefile/'
+
+    # chroma db settings
+    client_settings = Settings(
+        chroma_db_impl='duckdb+parquet',
+        persist_directory=persist_directory,
+        anonymized_telemetry=False
+    )
+    # get instance of db
+    db = Chroma(
+        collection_name='langchain',
+        embedding_function=embedding,
+        client_settings=client_settings,
+        persist_directory=persist_directory
+    )
+
+    # chunk setting
+    text_splitter = CharacterTextSplitter(
+        separator='\n\n',
+        # separator = '。',
+        chunk_size=1000,
+        chunk_overlap=10
+    )
+
+    # load files
+    filepath = os.path.join('data', filename)
+    if filetype == 'pdf':
+        loader = PyPDFLoader(filepath)
+    elif filetype == 'word':
+        loader = Docx2txtLoader(filepath)
+    elif filetype == 'json':
+        loader = JSONLoader(filepath)
+    else:
+        '''
+        Excel, Powerpointの場合。
+        langchain_communityのフレームワークを使って直接テキストを取得できない
+        ファイルから一度テキストのみ抽出し、テキストファイルとして保存する
+        そのテキストファイルをロードするならできそう。
+        TextLoaderが良さそう。
+        '''
+        pass
+    documents = loader.load_and_split(text_splitter=text_splitter)
+
+    db.add_documents(
+        documents=documents,
+        embedding=embedding
+    )
+    db.persist()
+
+
+    # 検索・参照先ファイルを出力するチェーンを作成
+    retriever = db.as_retriever()
+
+    # get prompt
+    prompt = PromptTemplate.from_template("""
+    あなたはcontextを参考に、questionに回答します。
+    <context>{context}</context>
+    <question>{question}</question>
+    """)
+
+    # get answer
+    completion = PromptTemplate.from_template("""
+    question:{question}
+    answer:{content}
+    total_token:{token}
+
+    source:{source}, page {page}
+    """)
+
+    # get chain
+    chain_rag_from_docs = (
+        RunnablePassthrough.assign(content=(lambda x: format_docs(x["context"])))
+        | prompt
+        | llm
+    )
+    chain_rag_with_source = RunnableParallel(
+        {"context": retriever, "question": RunnablePassthrough()}
+    ).assign(answer=chain_rag_from_docs)
+    chain_answer = completion
+
+    # get answer
+    query = '研究公募を実施する目的は何か?'
+    answer = chain_rag_with_source.invoke(query)
+
+    response = chain_answer.invoke({
+        "question":answer['question'],
+        "content":answer['answer'].content,
+        "token":answer['answer'].response_metadata['token_usage']['total_tokens'],
+        "source":answer['context'][0].metadata['source'],
+        "page":answer['context'][0].metadata['page']
+    })
+    print(response.text)
