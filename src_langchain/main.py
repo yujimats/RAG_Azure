@@ -3,8 +3,9 @@ import yaml
 import pandas as pd
 from dotenv import load_dotenv
 
-from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, JSONLoader, TextLoader
+from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, JSONLoader, TextLoader, WebBaseLoader
 from langchain_community.vectorstores import Chroma
+from langchain_community.vectorstores import FAISS
 
 # from langchain.indexes import VectorstoreIndexCreator
 from langchain.chains import RetrievalQAWithSourcesChain
@@ -225,24 +226,13 @@ def make_db():
 
     embedding = get_embedding()
 
-    client_settings = Settings(
-        chroma_db_impl='duckdb+parquet',
-        persist_directory='./chroma_db_separate',
-        anonymized_telemetry=False
-    )
-
-    db = Chroma(
-        collection_name='langchain',
-        embedding_function=embedding,
-        client_settings=client_settings,
-        persist_directory='./chroma_db_separate'
-    )
-
-    db.add_documents(
+    # set db
+    persistent_directory = './faiss_db_separate'
+    db = FAISS.from_documents(
         documents=documents,
         embedding=embedding
     )
-    db.persist()
+    db.save_local(folder_path=persistent_directory)
 
 def chat_from_db():
     # get models
@@ -256,18 +246,10 @@ def chat_from_db():
     <question>{question}</question>
     """)
 
+    # get db
+    persistent_directory='./faiss_db_separate'
+    db = FAISS.load_local(persistent_directory)
     # get retriever
-    client_settings = Settings(
-        chroma_db_impl='duckdb+parquet',
-        persist_directory='./chroma_db_separate',
-        anonymized_telemetry=False
-    )
-    db = Chroma(
-        collection_name='langchain',
-        embedding_function=embedding,
-        client_settings=client_settings,
-        persist_directory='./chroma_db_separate'
-    )
     retriever = db.as_retriever()
 
     # get chain
@@ -297,20 +279,7 @@ def main_onefile_withSource():
     llm = get_llm()
 
     # path to db
-    persist_directory = './chroma_db_onefile/'
-    # chroma db settings
-    client_settings = Settings(
-        chroma_db_impl='duckdb+parquet',
-        persist_directory=persist_directory,
-        anonymized_telemetry=False
-    )
-    # get instance of db
-    db = Chroma(
-        collection_name='langchain',
-        embedding_function=embedding,
-        client_settings=client_settings,
-        persist_directory=persist_directory
-    )
+    persist_directory = './faiss_db_onefile/'
 
     # chunk setting
     text_splitter = CharacterTextSplitter(
@@ -339,12 +308,12 @@ def main_onefile_withSource():
         pass
     documents = loader.load_and_split(text_splitter=text_splitter)
 
-    db.add_documents(
+    # set database
+    db = FAISS.from_documents(
         documents=documents,
         embedding=embedding
     )
-    db.persist()
-
+    db.save_local(folder_path=persist_directory)
 
     # 検索・参照先ファイルを出力するチェーンを作成
     retriever = db.as_retriever()
@@ -389,8 +358,97 @@ def main_onefile_withSource():
     })
     print(response.text)
 
+def main_from_wiki():
+    # chunk setting
+    text_splitter = CharacterTextSplitter(
+        separator='\n\n',
+        # separator = '。',
+        chunk_size=1000,
+        chunk_overlap=50
+    )
+
+    # get documents
+    document_url = 'https://ja.wikipedia.org/wiki/ロバート・オッペンハイマー'
+    raw_documents = WebBaseLoader(document_url).load()
+    documents = text_splitter.split_documents(raw_documents)
+
+    # get models
+    llm = get_llm()
+    embedding = get_embedding()
+
+    # set db
+    persistent_directory = './faiss_db_wiki'
+    db = FAISS.from_documents(
+        documents=documents,
+        embedding=embedding
+    )
+    db.save_local(folder_path=persistent_directory)
+
+    # get retriever
+    retriever = db.as_retriever()
+
+    # get templates
+    ## prompt
+    prompt = PromptTemplate.from_template("""
+    あなたはcontextを参考に、questionに回答します。
+    <context>{context}</context>
+    <question>{question}</question>
+    """)
+    ## answer
+    completion = PromptTemplate.from_template("""
+    question:{question}
+    answer:{content}
+
+    source:{source}
+    prompt_tokens:{prompt_tokens}
+    completion_tokens:{completion_tokens}
+    total_tokens:{total_tokens}
+    """)
+
+    # # get chain
+    # chain = (
+    #     {"context":retriever, "question":RunnablePassthrough()}
+    #     | prompt
+    #     | llm
+    #     | StrOutputParser()
+    # )
+
+    # # rag
+    # query = '映画オッペンハイマーについて教えて下さい。'
+    # answer = chain.invoke(query)
+    # print(answer)
+
+    # get chani with source
+    chain_rag_from_docs = (
+        RunnablePassthrough.assign(content=(lambda x: format_docs(x["context"])))
+        | prompt
+        | llm
+    )
+    chain_rag_with_source = RunnableParallel(
+        {"context": retriever, "question": RunnablePassthrough()}
+    ).assign(answer=chain_rag_from_docs)
+    # get response chain
+    chain_answer = completion
+
+    # rag
+    query = '映画オッペンハイマーについて教えて下さい。'
+    answer = chain_rag_with_source.invoke(query)
+    print(answer)
+
+    response = chain_answer.invoke({
+        "question":answer['question'],
+        "content":answer['answer'].content,
+        "source":answer['context'][0].metadata['source'],
+        "prompt_tokens":answer['answer'].response_metadata['token_usage']['prompt_tokens'],
+        "completion_tokens":answer['answer'].response_metadata['token_usage']['completion_tokens'],
+        "total_tokens":answer['answer'].response_metadata['token_usage']['total_tokens']
+    })
+    print(response.text)
+
+
 if __name__=='__main__':
-    main_onefile_withSource()
+    main_from_wiki()
+    # main_onefile_withSource()
     # main_onefile()
     # main_multifiles()
 

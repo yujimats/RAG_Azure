@@ -48,7 +48,7 @@ RUN pip install transformers==4.38.1
 RUN pip install scikit-learn==1.4.1.post1
 RUN pip install langchain==0.1.16
 RUN pip install langchain_community==0.0.33
-RUN pip install langchain_core==0.1.43
+RUN pip install langchain_core==0.1.44
 RUN pip install langchain-openai==0.0.8
 RUN pip install docarray==0.32.1
 RUN pip install faiss-cpu==1.8.0

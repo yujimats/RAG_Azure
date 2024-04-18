@@ -3,6 +3,7 @@
 .env
 chroma_*/
 .chroma
+faiss_*/
 
 .DS_Store
 
